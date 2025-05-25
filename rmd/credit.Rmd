@@ -35,6 +35,10 @@ theme_set(
 )
 ```
 
+## Goal of this section 
+
+-  Use features selected from EDA.Rmd to build our predictive models  
+
 ## About the data 
 
 This dataset provides fully anonymized features derived from multiple sources to enable participants to develop predictive models while ensuring data privacy. The goal is to predict target (first payment default) using various financial, employment, behavioral, and location-based features.
@@ -87,7 +91,7 @@ train_folds
 
 ## Recipe
 
-Load selected variables 
+-  Load selected variables 
 
 ```{r}
 all_selected_features <- read.csv("selected_features_eda.csv")$x
@@ -109,6 +113,8 @@ interactions_formula
 ## Recipes
 
 ```{r}
+
+# Recipe with no downsampling or smote 
 recipe_norm <- train %>%
   select(all_of(train_features)) %>%
   recipe(target ~ .) %>%
@@ -119,18 +125,19 @@ recipe_norm <- train %>%
   step_YeoJohnson(all_numeric_predictors()) %>%
   step_normalize(all_predictors())
 
-
+# verify if the selected features and interactions are indeed in our JUICED data 
 df_norm <- recipe_norm %>% prep %>% juice()
 all_selected_features[-grep(":",all_selected_features)] %in% colnames(df_norm)
 all_selected_features[grep(":", all_selected_features)] %>%
   as_tibble() %>%
   bind_cols(interactions_terms %>% as_tibble())
 
-
+# Check how the class imbalance is in this recipe_norm JUICED data 
 train$target %>% table()
 df_norm$target %>% table()
 
 
+# recipe with downsampling 
 recipe_down <- train %>%
   select(all_of(train_features)) %>%
   recipe(target ~ .) %>%
@@ -142,7 +149,7 @@ recipe_down <- train %>%
   step_normalize(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-
+# verify if the selected features and interactions are indeed in our JUICED data
 df_down <- recipe_down %>% prep %>% juice()
 all_selected_features[-grep(":", all_selected_features)] %in% colnames(df_down)
 
@@ -150,23 +157,27 @@ all_selected_features[grep(":", all_selected_features)] %>%
   as_tibble() %>%
   bind_cols(interactions_terms %>% as_tibble())
 
-
+# Check how the class imbalance is in this recipe_down JUICED data (should be no imbalacnce)
 train$target %>% table()
 df_down$target %>% table()
 ```
 
+Create a recipe that includes smote to try and minimize severity of the class imbalance 
+
+-  To create this we first have to tune smote recipe steps to find the best number of neighbours for the smote algorithms 
 
 ```{r}
-results_smote <- list()
 log_spec <- logistic_reg()
 
 folds <- vfold_cv(train, strata = target, v = 2, repeats = 3)
 folds
 
-neighbors_values <- seq(3, 21, 2)
+results_smote <- list()
 
+neighbors_values <- seq(3, 21, 2) #neighbours values should be prime numbers 
 neighbors_values
 
+# Use a for loop to tune for the best value of neighbours 
 for (n in neighbors_values) {
   recipe_smote_tune <- train %>%
     select(all_of(train_features)) %>%
@@ -190,8 +201,8 @@ for (n in neighbors_values) {
     pull(mean)
 }
 
+# We are going to use the value that gives the best roc_auc
 results_smote %>% unlist()
-
 
 best_K <- results_smote %>%
   unlist() %>%
@@ -200,7 +211,7 @@ best_K <- results_smote %>%
   pull(K) %>%
   as.numeric()
 
-
+# recipe smote 
 recipe_smote <- train %>%
   select(all_of(train_features)) %>%
   recipe(target ~ .) %>%
@@ -213,24 +224,25 @@ recipe_smote <- train %>%
   step_smote(all_outcomes(), over_ratio = 0.2, neighbors = best_K) %>%
   step_bsmote(all_outcomes(), over_ratio = 0.1, neighbors = best_K)
 
-
 df_smote <- recipe_smote %>% prep %>% juice()
+
+# check how the class imbalance is after applying smote 
 train$target %>% table()
 df_smote$target %>% table()
 ```
 
 ## MODEL SPECIFICATIONS 
 
+-  Create diiferent models which we will tune and train then choose the one with best performance .
+
 ```{r}
 log_spec <- logistic_reg(penalty = tune(), mixture = tune()) %>%
   set_mode("classification") %>%
   set_engine("glmnet")
 
-  
 knn_spec <- nearest_neighbor(neighbors = tune()) %>%
   set_mode("classification") %>%
   set_engine("kknn")
-
 
 rand_spec <- rand_forest(
   mtry = tune(),
@@ -239,7 +251,6 @@ rand_spec <- rand_forest(
 ) %>%
   set_mode("classification") %>%
   set_engine("randomForest")
-
 
 xgb_spec <- boost_tree(
   mtry = tune(),
@@ -250,8 +261,6 @@ xgb_spec <- boost_tree(
 ) %>%
   set_mode("classification") %>%
   set_engine("xgboost")
-
-
 ```
 
 ## Workflows  
@@ -281,38 +290,32 @@ results <- workflow_map(wf_set,
   control = control_grid(save_workflow = T),
   verbose = T
 )
-
 results
 
 results %>%
   autoplot(metric = "roc_auc")
 
-
 results %>%
   rank_results(select_best = T) %>%
   filter(.metric == "roc_auc") %>%
   select(wflow_id, .metric, mean, std_err)
-
 ```
-
 
 ```{r}
 best_xgb_tune <- results %>%
   extract_workflow_set_result(id = "recipe_norm_xgb_model") %>%
   select_best()
-
 best_xgb_tune
 
 xgb_wf <- finalize_workflow(
   workflow(recipe_norm, xgb_spec),
   best_xgb_tune
 )
-
 xgb_wf
 
 best_model <- last_fit(xgb_wf, split = splits)
-
 best_model
+
 best_model %>% collect_metrics()
 
 roc_data <- best_model %>%
@@ -321,8 +324,9 @@ roc_data <- best_model %>%
   mutate(
     youden_index = (sensitivity + specificity) / 2,
     top_left = sqrt((1 - 1.1 * sensitivity)^2 + (1 - specificity)^2)
+# i messed with top_left metric so we get threshold that will lead to balanced accuracy . 
   )
-
+# ROC plot
 roc_data %>% autoplot()
 
 roc_data %>%
@@ -330,11 +334,13 @@ roc_data %>%
 roc_data %>%
   slice_max(order_by = youden_index)
 
+# I choose threshold that leads to balanced accuracy 
 thres <- roc_data %>%
   slice_min(order_by = top_left) %>%
   pull(.threshold)
 
 thres <- 1 - thres
+thres
 
 wf <- extract_workflow(best_model)
 
@@ -345,27 +351,22 @@ classes1 <- predict(object = model, new_data = test_api) %>%
     youden_class = ifelse(.pred_1 > thres, 1, 0),
     actual = test_api$target
   )
-
 classes1
-
 
 caret::confusionMatrix(
   data = classes1$youden_class %>% factor(),
   reference = test_api$target %>% factor()
 )
-
 ```
+-  The model performs at a balanced accuracy of about 60% . Im happy with that .
 
 
+## Save the model and other important files to help with API Building 
 ```{r}
 setwd(here("api/"))
 
 saveRDS(model, "model.rds")
-
-
 class_threshold <- thres %>% as_tibble()
-
 write.csv(class_threshold, "classification_threshold.csv", row.names = F)
-
 ```
 
