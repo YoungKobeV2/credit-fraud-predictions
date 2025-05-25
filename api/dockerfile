@@ -1,0 +1,24 @@
+FROM rstudio/plumber:latest
+
+# install required packages 
+RUN R -e "options(timeout = 6000) ; install.packages(c('tidyverse','tidymodels','rapidoc'),\
+    repos = 'https://cloud.r-project.org' , dependencies=TRUE)"
+
+RUN R -e "options(timeout = 6000) ; install.packages(c('xgboost'),\
+    repos = 'https://cloud.r-project.org' , dependencies=TRUE)"    
+
+# copy required files to docker image    
+COPY start_plumber.R plumber.R model.rds api_spec.yml secrets.R classification_threshold.csv /app/
+
+#set working directory
+WORKDIR /app
+
+# expose port 8000
+EXPOSE 8000
+
+#clear the command prompt
+ENTRYPOINT []
+
+#Command to run when the image is opened 
+CMD ["Rscript","/app/start_plumber.R"]
+

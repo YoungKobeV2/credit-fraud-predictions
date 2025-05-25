@@ -1,0 +1,96 @@
+swagger: "2.0"
+
+info:
+  title: 
+  Description: 
+  Summary:
+  version: 
+
+tags:
+  - name: USER
+    description: USER endpoint , authentication required 
+  - name: ADMIN
+    description: ADMIN endpoint , authentication required 
+
+securityDefinitions:
+  Login:
+    type: http
+    scheme: basic
+
+security:
+  - Login: []
+    
+paths:
+
+  /get_prediction:
+    post:
+      summary: predict Fraud using 29 features
+      security:
+        - Login: []
+      tags:
+      - USER
+      -
+      
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1.0
+              items:
+                type: object
+                properties:
+                  feature_1:
+                    type: number
+                  feature_13:
+                    type: number
+                  feature_2:
+                    type: integer
+                  feature_20:
+                    type: number
+                  feature_5:
+                    type: number
+                  feature_11:
+                    type: number
+                  feature_6:
+                    type: number
+                  feature_10:
+                    type: number
+                  feature_85:
+                    type: integer
+                  feature_72:
+                    type: integer
+                  feature_56:
+                    type: number
+                  feature_3:
+                    type: integer
+                  feature_65:
+                    type: integer
+                  feature_23:
+                    type: number
+                  feature_60:
+                    type: integer
+                  feature_75:
+                    type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: string
+        default:
+          description: Default response.
+          content:
+            application/json:
+              schema:
+                type: object
+          
+          
+          
