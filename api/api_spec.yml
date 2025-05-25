@@ -9,9 +9,7 @@ info:
 tags:
   - name: USER
     description: USER endpoint , authentication required 
-  - name: ADMIN
-    description: ADMIN endpoint , authentication required 
-
+    
 securityDefinitions:
   Login:
     type: http
@@ -21,7 +19,6 @@ security:
   - Login: []
     
 paths:
-
   /get_prediction:
     post:
       summary: predict Fraud using 29 features
