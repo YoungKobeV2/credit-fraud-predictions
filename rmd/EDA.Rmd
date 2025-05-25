@@ -72,7 +72,7 @@ train
 test_api
 ```
 
-Create fold for model tuning
+Create folds for model tuning
 
 ```{r}
 train_folds <- vfold_cv(train,strata = target,v = 2,repeats = 5)
@@ -97,7 +97,6 @@ recipe <- train %>%
   step_mutate(target = as.factor(target)) %>%
   step_indicate_na(all_predictors()) %>%
   step_rm(all_of(features_to_remove))
-
 
 v_names <- recipe %>%
   prep() %>%
@@ -156,11 +155,9 @@ recipe_yeo <- train %>%
   step_normalize(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-  
 yeo_data <- recipe_yeo %>%
   prep() %>%
   juice()
-
 
 yeo_data %>%
   select_if(is.numeric) %>%
@@ -175,14 +172,12 @@ yeo_data %>%
     title = "Distribution of predictors after transformations",
     caption = "Skewness looks better"
   )
-
 ```
 
 Lets evaluate if new recipe improves predictive power
 
 ```{r}
 log_spec <- logistic_reg(mode = "classification", engine = "glm")
-
 log_spec
 
 wf_set <- workflow_set(
@@ -191,14 +186,12 @@ wf_set <- workflow_set(
   cross = T
 )
 
-
 fit_results <- workflow_map(
   object = wf_set,
   fn = "fit_resamples",
   resamples = train_folds,
   seed = 123
 )
-
 
 fit_results %>%
   workflowsets::collect_metrics() %>%
@@ -211,7 +204,7 @@ Recipe that include Yeo-Johnson performs better
 
 ## EDA 
 
-- Since we have to many variables , i decide to skip Plots for visually finding the useful / significant predictors . 
+- Since we have to many variables , i decide to skip Plots for visually finding the useful / significant predictors . We are going to use random forest , stepwise selection and lasso models for our feature selection . 
 
 ### variable selection with Random Forest
 
@@ -230,13 +223,11 @@ recipe <- train %>%
   step_normalize(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-
 EDA_data <- recipe %>%
   prep() %>%
   juice()
 
 EDA_data %>% colnames()
-
 
 rf_model <- ranger(target ~ .,
   data = EDA_data,
@@ -309,6 +300,8 @@ rf_features_to_remove
 
 ## Find important interactions 
 
+Using lasso regression 
+
 ```{r}
 recipe_lasso <- train %>%
   select(all_of(train_features)) %>%
@@ -363,7 +356,7 @@ lasso_model %>%
   arrange(desc(abs(estimate))) %>%
   ggplot(aes(x = estimate, y = reorder(term, estimate))) +
   geom_col() +
-  labs(title = "using step_normalize", y = "")
+  labs(title = "Lasso Feature Importance Plot", y = "")
 
 lasso_model %>%
   extract_fit_parsnip() %>%
@@ -374,8 +367,6 @@ lasso_model %>%
   ) %>%
   arrange(desc(abs(estimate))) %>%
   print(n = 100)
-
-
 
 selected_lasso_features <- lasso_model %>%
   tidy() %>%
@@ -389,35 +380,28 @@ selected_lasso_features <- lasso_model %>%
 selected_lasso_features
 
 interactions_terms <- grep(":", selected_lasso_features, value = T)
-
 interactions_terms
 
 left <- gsub("(\\w+):\\w+", "\\1", interactions_terms)
-
 left
-right <- gsub("\\w+:(\\w+)", "\\1", interactions_terms)
 
+right <- gsub("\\w+:(\\w+)", "\\1", interactions_terms)
 right
 
 interactions_formula <- interactions_terms %>%
   paste(collapse = " + ")
-
 interactions_formula <- paste("~", interactions_formula) %>% rlang::parse_expr()
-
 interactions_formula
 
 others <- selected_lasso_features[-grep(":", selected_lasso_features)]
-
 others
 
 all_lasso_features <- c(left, right, others) %>% unique()
-
 all_lasso_features
 
 lasso_train_features <- gsub("na_ind_", "", all_lasso_features) %>%
   c("target") %>%
   unique()
-
 lasso_train_features
 
 recipe_d2 <- train %>%
@@ -426,7 +410,6 @@ recipe_d2 <- train %>%
   step_mutate(target = as.factor(target)) %>%
   step_indicate_na(all_predictors()) %>%
   step_interact(terms = interactions_formula, sep = ":")
-
 
 lasso_features <- recipe_d2 %>%
   prep() %>%
@@ -438,12 +421,11 @@ lasso_features
 
 no_int_lasso <- lasso_features[-grep(":", lasso_features)]
 
-
+# check if all our interaction terms are indeed in our Juiced data
 interactions_terms %>%
   as_tibble() %>%
   bind_cols(grep(":", lasso_features, value = T) %>%
     as_tibble())
-
 
 lasso_features_to_remove <- no_int_lasso[!no_int_lasso %in% selected_lasso_features]
 lasso_features_to_remove
@@ -453,11 +435,9 @@ Combine random with lasso features
 
 ```{r}
 rf_lasso_train <- c(rf_train_features, lasso_train_features) %>% unique()
-
 rf_lasso_train
 
 rf_lasso_selected <- c(selected_rf_features, selected_lasso_features) %>% unique()
-
 rf_lasso_selected
 
 interactions_formula
@@ -469,21 +449,17 @@ recipe_d3 <- train %>%
   step_indicate_na(all_predictors()) %>%
   step_interact(terms = interactions_formula, sep = ":")
 
-
-
 rf_lasso_features <- recipe_d3 %>%
   prep() %>%
   juice() %>%
   select(-target) %>%
   colnames()
-
 rf_lasso_features
-no_int_rf_lasso <- rf_lasso_features[-grep(":", rf_lasso_features)]
 
+no_int_rf_lasso <- rf_lasso_features[-grep(":", rf_lasso_features)]
 no_int_rf_lasso
 
 rf_lasso_remove <- no_int_rf_lasso[!no_int_rf_lasso %in% rf_lasso_selected]
-
 rf_lasso_remove
 ```
 
@@ -493,15 +469,14 @@ Step-wise feature selection
 recipe_step_select <- train
 
 base_mod <- glm(target ~ 1, data = EDA_data, family = binomial())
-
 int_mod <- glm(target ~ .^2, data = EDA_data, family = binomial())
-
 
 results_stepAIC <- list()
 
 k_values <- seq(2, 4, 0.1)
-
 k_values
+
+# use the for loop to figure out the best value we should use for  stepAIC() (k) argument
 
 for (n in k_values) {
   step_mod <- MASS::stepAIC(
@@ -511,8 +486,6 @@ for (n in k_values) {
     k = n,
     trace = 1
   )
-
-
   results_stepAIC[[paste(n)]] <- step_mod$aic
 }
 
@@ -521,8 +494,7 @@ results_stepAIC %>%
   as_tibble(rownames = "K") %>%
   print(n = 30)
 
-
-# choose K=3
+# choose K=3 because there is no significant gains for K values greater than 3 
 
 step_mod <- MASS::stepAIC(
   object = base_mod,
@@ -532,35 +504,27 @@ step_mod <- MASS::stepAIC(
   trace = 1
 )
 
-
 step_selected_features <- step_mod$coefficients[-1] %>% names()
-
+step_selected_features
 
 step_selected_ints <- grep(":", step_selected_features, value = T)
-
 step_selected_ints
 
 step_left <- gsub("(\\w+):\\w+", "\\1", step_selected_ints)
-
 step_left
 
 step_right <- gsub("\\w+:(\\w+)", "\\1", step_selected_ints)
-
 step_right
 
 step_others <- step_selected_features[-grep(":", step_selected_features)]
-
 step_others
 
 step_train_features <- c(step_others, step_left, step_right, "target") %>% unique()
-
 step_train_features <- gsub("na_ind_", "", step_train_features) %>% unique()
-
 step_train_features
 
 step_int_formula <- paste("~", paste(step_selected_ints, collapse = " + ")) %>%
   rlang::parse_expr()
-
 step_int_formula
 
 recipe_d4 <- train %>%
@@ -570,26 +534,22 @@ recipe_d4 <- train %>%
   step_indicate_na(all_predictors()) %>%
   step_interact(terms = step_int_formula, sep = ":")
 
-
 step_features <- recipe_d4 %>%
   prep() %>%
   juice() %>%
   select(-target) %>%
   colnames()
-
 step_features
 
+# check if our interactions are indeed in our Juiced data
 grep(":", step_features, value = T) %>%
   as_tibble() %>%
   bind_cols(step_selected_ints %>% as_tibble())
 
-
 step_no_int <- step_features[-grep(":", step_features)]
-
 step_no_int
 
 step_features_to_remove <- step_no_int[!step_no_int %in% step_selected_features]
-
 step_features_to_remove
 ```
 
@@ -600,7 +560,6 @@ use logistic regression to compare
 ```{r}
 log_spec <- logistic_reg(engine = "glm", mode = "classification")
 
-
 recipe_rf <- train %>%
   select(all_of(rf_train_features)) %>%
   recipe(target ~ .) %>%
@@ -610,7 +569,7 @@ recipe_rf <- train %>%
   step_YeoJohnson(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-
+# check if rf selected features are indeed in our data
 df_rf <- recipe_rf %>% prep() %>% juice()
 selected_rf_features %in% colnames(df_rf)
 
@@ -625,10 +584,9 @@ recipe_lasso <- train %>%
   step_normalize(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-  
+# check if lasso features and interactions are in our data 
 df_lasso <- recipe_lasso %>% prep() %>% juice()  
 selected_lasso_features[-grep(":", selected_lasso_features)] %in% colnames(df_lasso)
-
 
 selected_lasso_features[grep(":",selected_lasso_features)] %>% as_tibble()%>%
   bind_cols(interactions_terms %>% as_tibble())
@@ -644,7 +602,7 @@ recipe_rf_lasso <- train %>%
   step_normalize(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-  
+# check if rf_lasso selected features and interactions are indeed in our data   
 df_rf_lasso <- recipe_rf_lasso %>% prep() %>% juice()
 rf_lasso_selected[-grep(":",rf_lasso_selected)] %in% colnames(df_rf_lasso)
 
@@ -662,7 +620,7 @@ recipe_step <- train %>%
   step_normalize(all_predictors()) %>%
   step_downsample(target, seed = 123)
 
-
+# check if our stepAIC selected features and interactions are indeed in our data 
 df_step_colnames <- recipe_step %>% prep() %>% juice() %>% select(-target) %>% colnames()
 df_step_colnames[-grep(":",df_step_colnames)] %in% step_selected_features
 
@@ -670,22 +628,27 @@ grep(":",step_features,value=T) %>% as_tibble() %>%
   bind_cols(step_selected_ints %>% as_tibble())
 
 
+# Compare predictive power of each set 8using logistic regression .  
+
 wf_set <- workflow_set(preproc = list(recipe_rf=recipe_rf,
                                       recipe_lasso=recipe_lasso,
                                       recipe_rf_lasso=recipe_rf_lasso,
                                       recipe_step=recipe_step),
-                       models = list(log_model=log_spec),cross = T,save_workflow=T)
+                       models = list(log_model=log_spec),
+                       cross = T)
 
 wf_results <- workflow_map(wf_set,
                            fn = "fit_resamples",
                            resamples = train_folds,
                            seed = 123)
 
-wf_results %>% collect_metrics() %>% filter(.metric=="roc_auc")%>%
+wf_results %>% collect_metrics() %>% filter(.metric=="roc_auc") %>%
   select(wflow_id , .metric , mean , std_err)
 ```
 
 using random forest 
+
+-  compare predictive power of each set using random forests
 
 ```{r}
 # rf_spec <- rand_forest(mode = "classification",engine = "ranger",mtry = tune(),trees = tune(),min_n = tune())
@@ -713,7 +676,12 @@ using random forest
 # final_recipe <- recipe_rf_lasso
 ```
 
-The above code takes too long to run , best recipe rf_lasso
+-  The above code takes too long to run , best recipe is recipe_rf_lasso
+
+
+## Save the important features in our best recipe  
+
+-  These are the features we will focus on going forward . For building our models . 
 
 ```{r}
 rf_lasso_selected
@@ -728,7 +696,3 @@ write.csv(rf_lasso_remove , "features_to_remove_eda.csv")
 write.csv(interactions_terms , "interaction_terms_eda.csv")
 saveRDS(interactions_formula , "interaction_formula_eda.rds")
 ```
-
-
-
-
